@@ -42,6 +42,12 @@ function showToast(msg: string, type: 'success' | 'info' = 'success') {
   setTimeout(() => (toast.value = null), 2800)
 }
 
+// Minimal preset loader (fixes missing reference in simulator UI)
+function loadSampleFleet() {
+  store.updateScale({ sites: 11, camerasPerSite: 30, retentionMonths: 90, inferenceMultiplier: 1.0 })
+  showToast('LOADED 330-CAMERA FLEET PRESET', 'info')
+}
+
 // Scale simulator local reactive (synced to store)
 const localScale = computed({
   get: () => store.scaleConfig,

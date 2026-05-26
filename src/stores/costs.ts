@@ -110,12 +110,22 @@ export const useCostsStore = defineStore('costs', {
     },
 
     /** Quick aggregates */
-    totalTCO: (state) => this.currentTCO.totalTCO,
-    totalCapex: (state) => this.currentTCO.capex,
-    totalOpex: (state) => this.currentTCO.opex,
-    monthlyBurn: (state) => this.currentTCO.monthlyBurn,
+    totalTCO(state) {
+      return this.currentTCO.totalTCO
+    },
+    totalCapex(state) {
+      return this.currentTCO.capex
+    },
+    totalOpex(state) {
+      return this.currentTCO.opex
+    },
+    monthlyBurn(state) {
+      return this.currentTCO.monthlyBurn
+    },
 
-    perBusMetrics: (state) => this.currentTCO.perBus,
+    perBusMetrics(state) {
+      return this.currentTCO.perBus
+    },
 
     /** Live optimization insights for current parameters */
     liveInsights(state): OptimizationInsight[] {
