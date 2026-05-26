@@ -238,32 +238,6 @@ function generateCSV() {
 function generatePDF() {
   import('jspdf').then(({ jsPDF }) => {
     const doc = new jsPDF()
-    const w = doc.internal.pageSize.getWidth()
-    doc.setFillColor(10, 22, 37)
-    doc.rect(0, 0, w, 30, 'F')
-    doc.setTextColor(2, 128, 144)
-    doc.setFontSize(16)
-    doc.text('SHADOWFORGE COST SENTINEL', 18, 17)
-    doc.setFontSize(9)
-    doc.text('SOVEREIGN EDGE + GCP CONNECT ANALYSIS', 18, 24)
-    doc.setTextColor(232, 240, 254)
-    doc.text(`GCP Imported: $${(store.gcpTotalImported || 0).toFixed(2)}   AI Savings/mo: $${(store.sovereignAnalysis?.projectedOnDeviceSavings || 0).toFixed(0)}`, 18, 38)
-    doc.text(`Fleet: ${totalCameras.value} cameras  |  5-YR TCO: ${formatCurrency(fiveYearTCO.value)}`, 18, 45)
-    doc.save(`ShadowForge-Sovereign-GCP-${Date.now()}.pdf`)
-    showToast('PDF REPORT GENERATED')
-    reportGenerated.value = true
-  })
-}
-
-function loadSampleFleet() {
-  store.updateScale({ sites: 22, camerasPerSite: 15, retentionMonths: 120, inferenceMultiplier: 1.35 })
-  showToast('LARGE FLEET PRESET LOADED', 'info')
-}
-
-
-function generatePDF() {
-  import('jspdf').then(({ jsPDF }) => {
-    const doc = new jsPDF()
     const pageWidth = doc.internal.pageSize.getWidth()
 
     doc.setFillColor(10, 22, 37)
@@ -322,11 +296,6 @@ function generatePDF() {
     showToast('PDF REPORT GENERATED — SECURE DOWNLOAD')
     reportGenerated.value = true
   })
-}
-
-function loadSampleFleet() {
-  store.updateScale({ sites: 22, camerasPerSite: 15, retentionMonths: 120, inferenceMultiplier: 1.35 })
-  showToast('LARGE FLEET PRESET LOADED (330 CAMERAS)', 'info')
 }
 
 // Live HUD animation loop

@@ -1,0 +1,14 @@
+# Cloudflare Worker specific
+.dev.vars
+worker-configuration.d.ts
+.wrangler/
+
+# Dependencies
+node_modules/
+
+# Build / misc
+.DS_Store
+*.log
+.env
+.env.*
+!.env.example

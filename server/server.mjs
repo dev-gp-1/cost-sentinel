@@ -31,30 +31,47 @@ app.get('/api/skus', async (c) => {
   try {
     const client = new CloudCatalogClient()
     
-    // Real call - list SKUs (this works with ADC)
-    const [skus] = await client.listSkus({ 
-      parent: 'services/6F81-5844-456A' // Cloud Storage service (common)
-    })
+    // Real call with hard timeout to prevent hangs (GCP Billing catalog can be slow or blocked)
+    let skus = []
+    let source = 'fallback-mock'
+    let note = 'Using mock data (live call timed out or failed)'
+    try {
+      const listPromise = client.listSkus({ 
+        parent: 'services/6F81-5844-456A' // Cloud Storage service (common)
+      })
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('listSkus timeout after 6s')), 6000)
+      )
+      const [liveSkus] = await Promise.race([listPromise, timeoutPromise])
+      skus = liveSkus || []
+      if (skus.length > 0) {
+        source = 'live'
+        note = 'Live SKU data from Cloud Billing Catalog'
+      }
+    } catch (innerErr) {
+      console.error('GCP Billing API timeout/err (using mock):', innerErr.message)
+    }
 
-    const formatted = skus.slice(0, 20).map(s => {
-      const pricing = s.pricingInfo?.[0]?.pricingExpression?.tieredRates?.[0]?.unitPrice || {}
+    const formatted = (skus.length ? skus : MOCK_SKUS).slice(0, 20).map(s => {
+      const pricing = (s.pricingInfo?.[0]?.pricingExpression?.tieredRates?.[0]?.unitPrice) || {}
       return {
-        sku: s.skuId,
+        sku: s.skuId || s.sku,
         description: s.description,
-        listPrice: pricing.units || 0,
-        category: s.category?.resourceFamily || 'Other',
+        listPrice: pricing.units || s.listPrice || 0,
+        category: s.category?.resourceFamily || s.category || 'Other',
         service: s.serviceDisplayName || 'Unknown'
       }
     })
 
     return c.json({ 
-      source: 'live', 
+      source, 
       project: TARGET_PROJECT_ID,
-      skus: formatted.length > 0 ? formatted : MOCK_SKUS,
-      note: 'Live SKU data from Cloud Billing Catalog'
+      skus: formatted,
+      note,
+      warning: source === 'fallback-mock' ? 'Live call slow/failed; using built-in mocks. ADC may lack billing.catalog permissions or API slow.' : undefined
     })
   } catch (err) {
-    console.error('GCP Billing API error:', err.message)
+    console.error('GCP Billing handler error:', err.message)
     return c.json({ 
       source: 'fallback-mock', 
       skus: MOCK_SKUS, 

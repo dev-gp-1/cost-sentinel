@@ -1,0 +1,103 @@
+# Cloudflare Worker: casper-proxy
+# Production-ready reverse proxy for ShadowForge Cost Sentinel (Vue.js SPA on Cloud Run)
+# Target: casper.ghostprotocol.us (Cloudflare Access protected)
+# Deploy with: CLOUDFLARE_API_TOKEN=... npx wrangler deploy   (or npm run deploy)
+#   Token used (limited scope): [REDACTED - use full-priv or env var]
+#   If scope insufficient for edit: use dashboard deploy or full-perm token / wrangler login
+# Also: npx wrangler secret put BACKEND_URL   (non-interactive: echo 'URL' | npx wrangler secret put ...)
+
+name = "casper-proxy"
+main = "src/index.ts"
+compatibility_date = "2025-05-25"
+compatibility_flags = []
+
+# ============================================================================
+# BACKEND CONFIGURATION (CASPER / GHOST PROTOCOL)
+# ============================================================================
+# The Cloud Run URL for the Cost Sentinel app (casper.ghostprotocol.us frontend).
+# IMPORTANT: After first deploy, use `wrangler secret put BACKEND_URL`
+# to set the real value securely (recommended for production). Secrets override [vars].
+# The value below is a placeholder only. Update post Cloud Run deploy via:
+#   cd cloudflare-worker && npx wrangler secret put BACKEND_URL
+# (value e.g. https://cost-sentinel-<hash>-uc.a.run.app from gcloud run services describe)
+[vars]
+BACKEND_URL = "https://cost-sentinel-PLACEHOLDER-uc.a.run.app"
+
+# ----------------------------------------------------------------------------
+# CLOUDFLARE ACCESS SERVICE TOKEN (m2m) - wired for casper.ghostprotocol.us
+# ----------------------------------------------------------------------------
+# Use these for future machine-to-machine calls that need to bypass or satisfy
+# the Cloudflare Access policy on casper.ghostprotocol.us (or the Worker).
+# Client ID (public):
+#   CF-Access-Client-Id: 00bc5effe82dd81aa686fcf3cc33cce7.access
+#
+# Corresponding Secret (sensitive - DO NOT commit):
+#   Store via: wrangler secret put CF_ACCESS_CLIENT_SECRET
+#   (or equivalent in calling scripts / Cloud Run / other Workers).
+# Example curl (when secret known):
+#   curl -H 'CF-Access-Client-Id: 00bc5effe82dd81aa686fcf3cc33cce7.access' \
+#        -H 'CF-Access-Client-Secret: <YOUR_SECRET_HERE>' \
+#        https://casper.ghostprotocol.us/
+#
+# Current Worker (src/index.ts) does transparent proxying; auth primarily
+# enforced by Cloudflare Access policy (Zero Trust) attached to the route/domain.
+# Add code consumption of CF_ACCESS_CLIENT_SECRET only if Worker needs to
+# originate authenticated upstream calls.
+# ----------------------------------------------------------------------------
+
+# ============================================================================
+# ROUTING (choose ONE approach)
+# ============================================================================
+
+# Option A (Recommended for full custom domain): Add the domain as a
+# "Custom Domain" directly in the Cloudflare Workers dashboard for this Worker.
+# This is the simplest and most reliable for apex/subdomain proxying.
+
+# Option B: Use routes (requires the zone to be on Cloudflare)
+# Uncomment and adjust after setting up DNS. Zone must be active.
+# [[routes]]
+# pattern = "casper.ghostprotocol.us/*"
+# zone_name = "ghostprotocol.us"
+
+# Option C: Use a workers.dev subdomain for testing (auto-provided)
+# e.g. casper-proxy.<your-subdomain>.workers.dev
+
+# ============================================================================
+# ENVIRONMENT OVERRIDES (optional - for staging/prod)
+# ============================================================================
+# [env.production.vars]
+# BACKEND_URL = "https://cost-sentinel-prod-xxx.a.run.app"
+
+# [env.staging]
+# name = "casper-proxy-staging"
+
+# ============================================================================
+# OBSERVABILITY & LIMITS (production tuning)
+# ============================================================================
+# Enable logpush in the dashboard or via API for production monitoring.
+# Workers have generous limits; adjust only if you hit them.
+
+# [limits]
+# cpu_ms = 30000
+
+# ============================================================================
+# NOTES
+# ============================================================================
+# - This Worker preserves ALL request/response data (headers, method, body, cookies).
+# - SPA routing is handled transparently by the nginx config on Cloud Run.
+# - Cloudflare Access is the recommended auth layer (configure in Zero Trust).
+# - Static assets benefit from Cloudflare's global CDN automatically.
+# - Update BACKEND_URL after every new Cloud Run deployment if the URL changes.
+
+# ----------------------------------------------------------------------------
+# CASPER. GHOSTPROTOCOL.US / DEPLOYMENT NOTES (2026-05-26)
+# ----------------------------------------------------------------------------
+# Worker name: casper-proxy
+# Conventional live Worker hostname (post-deploy): https://casper-proxy.cost-sentinel.workers.dev
+#   (account workers subdomain inferred from apply scripts + whoami as "cost-sentinel";
+#    confirm exact in Workers & Pages dashboard after successful deploy)
+# Custom domain target: casper.ghostprotocol.us (add via dashboard, see below)
+# Cloud Run project/service: gp-phantomvision-dev / cost-sentinel (us-central1)
+# Service token details (for m2m / scripts): see BACKEND CONFIGURATION section above.
+# Full wiring scripts: apply-cloudflare-access-policy.sh , setup-cloudflare-dns.sh , wire-*.sh
+# ----------------------------------------------------------------------------

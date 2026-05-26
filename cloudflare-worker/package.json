@@ -1,0 +1,20 @@
+{
+  "name": "casper-proxy",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cloudflare Worker reverse proxy for ShadowForge Cost Sentinel (Cloud Run)",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "start": "wrangler dev",
+    "cf-typegen": "wrangler types",
+    "tail": "wrangler tail"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250525.0",
+    "wrangler": "^4.14.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

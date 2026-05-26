@@ -1,0 +1,4 @@
+# Copy this file to .dev.vars (never commit .dev.vars)
+# These values are ONLY used when running `wrangler dev` locally.
+
+BACKEND_URL=https://cost-sentinel-xxx.a.run.app
