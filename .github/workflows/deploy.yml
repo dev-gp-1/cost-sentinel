@@ -1,0 +1,262 @@
+name: Deploy to Cloud Run (Artifact Registry)
+
+# =============================================================================
+# COST SENTINEL - GitHub Actions CI/CD to Google Cloud Run
+# =============================================================================
+# Triggers: Push to main + manual dispatch
+# - Builds Docker image from Dockerfile (nginx + Vue SPA)
+# - Pushes to Google Artifact Registry (us-central1-docker.pkg.dev)
+# - Deploys to Cloud Run in gp-phantomvision-dev
+# - Allows unauthenticated (Cloudflare Access / Worker will enforce auth at edge)
+#
+# AUTHENTICATION (BEST PRACTICE - OIDC / Workload Identity Federation):
+#   1. Create a dedicated Service Account:
+#        gcloud iam service-accounts create github-actions-deployer \
+#          --project=gp-phantomvision-dev \
+#          --display-name="GitHub Actions Deployer for Cost Sentinel"
+#
+#   2. Grant minimal required roles to the SA:
+#        gcloud projects add-iam-policy-binding gp-phantomvision-dev \
+#          --member="serviceAccount:github-actions-deployer@gp-phantomvision-dev.iam.gserviceaccount.com" \
+#          --role="roles/run.admin"
+#        gcloud projects add-iam-policy-binding gp-phantomvision-dev \
+#          --member="serviceAccount:github-actions-deployer@gp-phantomvision-dev.iam.gserviceaccount.com" \
+#          --role="roles/artifactregistry.writer"
+#        gcloud projects add-iam-policy-binding gp-phantomvision-dev \
+#          --member="serviceAccount:github-actions-deployer@gp-phantomvision-dev.iam.gserviceaccount.com" \
+#          --role="roles/iam.serviceAccountUser"
+#        # Optional but recommended for first runs:
+#        gcloud projects add-iam-policy-binding gp-phantomvision-dev \
+#          --member="serviceAccount:github-actions-deployer@gp-phantomvision-dev.iam.gserviceaccount.com" \
+#          --role="roles/serviceusage.serviceUsageConsumer"
+#
+#   3. Create Workload Identity Federation (no long-lived keys):
+#        # Create pool
+#        gcloud iam workload-identity-pools create github-pool \
+#          --project=gp-phantomvision-dev \
+#          --location="global" \
+#          --display-name="GitHub Actions Pool"
+#
+#        # Create OIDC provider for this repo only
+#        gcloud iam workload-identity-pools providers create-oidc github-provider \
+#          --project=gp-phantomvision-dev \
+#          --workload-identity-pool="github-pool" \
+#          --display-name="GitHub OIDC Provider" \
+#          --issuer-uri="https://token.actions.githubusercontent.com" \
+#          --attribute-mapping="google.subject=assertion.sub,attribute.actor=assertion.actor,attribute.repository=assertion.repository" \
+#          --attribute-condition="assertion.repository == 'dev-gp-1/cost-sentinel'"
+#
+#   4. Allow the GitHub repo to impersonate the SA (attribute.repository filter above helps):
+#        gcloud iam service-accounts add-iam-policy-binding \
+#          github-actions-deployer@gp-phantomvision-dev.iam.gserviceaccount.com \
+#          --project=gp-phantomvision-dev \
+#          --role="roles/iam.workloadIdentityUser" \
+#          --member="principalSet://iam.googleapis.com/projects/$(gcloud projects describe gp-phantomvision-dev --format='value(projectNumber)')/locations/global/workloadIdentityPools/github-pool/attribute.repository/dev-gp-1/cost-sentinel"
+#
+#   5. In GitHub repo (dev-gp-1/cost-sentinel) → Settings → Secrets and variables → Actions:
+#        - Add Repository Secret: GCP_WORKLOAD_IDENTITY_PROVIDER
+#          Value: projects/<PROJECT_NUMBER>/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+#        - Add Repository Secret: GCP_SERVICE_ACCOUNT
+#          Value: github-actions-deployer@gp-phantomvision-dev.iam.gserviceaccount.com
+#
+#   ALTERNATIVE (less secure - long lived key):
+#        Create JSON key for the SA, store as GitHub Secret "GCP_SA_KEY".
+#        Then change the auth step below to use:
+#          with:
+#            credentials_json: ${{ secrets.GCP_SA_KEY }}
+#        (and remove workload_identity_provider / service_account lines)
+#
+# CUSTOM DOMAIN PREPARATION (Cloud Run native + Cloudflare):
+#   After first successful deploy you can map casper.ghostprotocol.us:
+#     gcloud run domain-mappings create \
+#       --service=cost-sentinel \
+#       --domain=casper.ghostprotocol.us \
+#       --region=us-central1 \
+#       --project=gp-phantomvision-dev
+#
+#   Follow the printed verification instructions (add TXT record in Cloudflare).
+#   Then in Cloudflare DNS create/update CNAME:
+#     casper.ghostprotocol.us  ->  ghs.googlehosted.com   (Proxy status: DNS only / proxied=false until cert ready)
+#
+#   See also: ./setup-cloudflare-dns.sh (updated for both patterns) and ./deploy.sh
+#
+# Cloud Run will be public (allow-unauthenticated). Protect it via Cloudflare Access
+# (Worker or direct hostname with Access policy) as described in project docs.
+# =============================================================================
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      force_rebuild:
+        description: 'Force rebuild even if no code changes'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  PROJECT_ID: gp-phantomvision-dev
+  REGION: us-central1
+  SERVICE_NAME: cost-sentinel
+  AR_REPOSITORY: cost-sentinel
+  # Default resources suitable for a lightweight Vue + nginx SPA
+  CLOUD_RUN_MEMORY: 256Mi
+  CLOUD_RUN_CPU: 1
+  CLOUD_RUN_CONCURRENCY: 80
+
+jobs:
+  deploy:
+    name: Build & Deploy to Cloud Run
+    runs-on: ubuntu-latest
+
+    # Required for OIDC token generation
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Authenticate to Google Cloud (OIDC / Workload Identity)
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          # OIDC (recommended - set these two secrets after completing the setup steps in the header)
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT || 'github-actions-deployer@gp-phantomvision-dev.iam.gserviceaccount.com' }}
+
+          # To use a service account key instead (fallback), replace the two lines above with:
+          # credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Enable required Google APIs (idempotent)
+        run: |
+          gcloud services enable \
+            run.googleapis.com \
+            artifactregistry.googleapis.com \
+            --project=${{ env.PROJECT_ID }}
+
+      - name: Create Artifact Registry Docker repository (if it does not exist)
+        run: |
+          if ! gcloud artifacts repositories describe ${{ env.AR_REPOSITORY }} \
+            --location=${{ env.REGION }} \
+            --project=${{ env.PROJECT_ID }} >/dev/null 2>&1; then
+            echo "Creating Artifact Registry repository: ${{ env.AR_REPOSITORY }}"
+            gcloud artifacts repositories create ${{ env.AR_REPOSITORY }} \
+              --repository-format=docker \
+              --location=${{ env.REGION }} \
+              --description="Docker images for ShadowForge Cost Sentinel" \
+              --project=${{ env.PROJECT_ID }}
+          else
+            echo "Artifact Registry repository already exists."
+          fi
+
+      - name: Configure Docker authentication for Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Build Docker image
+        run: |
+          IMAGE="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPOSITORY }}/${{ env.SERVICE_NAME }}:${{ github.sha }}"
+          LATEST_IMAGE="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPOSITORY }}/${{ env.SERVICE_NAME }}:latest"
+
+          echo "Building image: $IMAGE"
+          docker build \
+            --tag "$IMAGE" \
+            --tag "$LATEST_IMAGE" \
+            --label "org.opencontainers.image.source=https://github.com/dev-gp-1/cost-sentinel" \
+            --label "org.opencontainers.image.revision=${{ github.sha }}" \
+            .
+
+          echo "IMAGE=$IMAGE" >> $GITHUB_ENV
+          echo "LATEST_IMAGE=$LATEST_IMAGE" >> $GITHUB_ENV
+
+      - name: Push images to Google Artifact Registry
+        run: |
+          echo "Pushing ${{ env.IMAGE }}"
+          docker push "${{ env.IMAGE }}"
+          echo "Pushing ${{ env.LATEST_IMAGE }}"
+          docker push "${{ env.LATEST_IMAGE }}"
+
+      - name: Deploy to Cloud Run (allow unauthenticated - Cloudflare Access will protect)
+        id: deploy
+        run: |
+          gcloud run deploy ${{ env.SERVICE_NAME }} \
+            --image ${{ env.IMAGE }} \
+            --region ${{ env.REGION }} \
+            --project ${{ env.PROJECT_ID }} \
+            --platform managed \
+            --allow-unauthenticated \
+            --memory ${{ env.CLOUD_RUN_MEMORY }} \
+            --cpu ${{ env.CLOUD_RUN_CPU }} \
+            --concurrency ${{ env.CLOUD_RUN_CONCURRENCY }} \
+            --labels "app=cost-sentinel,managed-by=github-actions,environment=production" \
+            --quiet
+
+          # Get the live URL
+          CLOUD_RUN_URL=$(gcloud run services describe ${{ env.SERVICE_NAME }} \
+            --region ${{ env.REGION }} \
+            --project ${{ env.PROJECT_ID }} \
+            --format='value(status.url)')
+
+          echo "url=$CLOUD_RUN_URL" >> $GITHUB_OUTPUT
+          echo "CLOUD_RUN_URL=$CLOUD_RUN_URL" >> $GITHUB_ENV
+
+          echo ""
+          echo "✅ Deployment complete!"
+          echo "   Service: ${{ env.SERVICE_NAME }}"
+          echo "   Region:  ${{ env.REGION }}"
+          echo "   URL:     $CLOUD_RUN_URL"
+          echo "   Image:   ${{ env.IMAGE }}"
+
+      - name: Custom domain & Cloudflare preparation output
+        run: |
+          echo ""
+          echo "========================================================================"
+          echo "NEXT STEPS — CUSTOM DOMAIN ON CLOUD RUN + CLOUDFLARE"
+          echo "========================================================================"
+          echo ""
+          echo "1. Map custom domain in Cloud Run (one-time):"
+          echo "   gcloud run domain-mappings create \\"
+          echo "     --service=${{ env.SERVICE_NAME }} \\"
+          echo "     --domain=casper.ghostprotocol.us \\"
+          echo "     --region=${{ env.REGION }} \\"
+          echo "     --project=${{ env.PROJECT_ID }}"
+          echo ""
+          echo "   Follow the verification steps printed by the command (add TXT record in Cloudflare DNS)."
+          echo ""
+          echo "2. In Cloudflare DNS for ghostprotocol.us zone, create / update:"
+          echo "   Type:  CNAME"
+          echo "   Name:  casper"
+          echo "   Target: ghs.googlehosted.com"
+          echo "   Proxy status: DNS only (orange cloud OFF) until Google cert is issued"
+          echo ""
+          echo "3. (Alternative simpler pattern without Cloud Run domain mapping):"
+          echo "   Point Cloudflare CNAME directly at the Cloud Run URL above and use a Cloudflare Worker"
+          echo "   as an auth proxy + Access policy in front (see setup-cloudflare-dns.sh)."
+          echo ""
+          echo "4. Once domain is live and verified, apply your Cloudflare Access policy"
+          echo "   (the one allowing ghostprotocol.us + cota.com + specific emails)."
+          echo ""
+          echo "========================================================================"
+          echo "Service is currently PUBLIC. Protect it at the edge with Cloudflare."
+          echo "========================================================================"
+
+      - name: Summary
+        run: |
+          echo "## 🚀 Cost Sentinel Deployed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **URL**: ${{ steps.deploy.outputs.url }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image**: \`${{ env.IMAGE }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Region**: ${{ env.REGION }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Project**: ${{ env.PROJECT_ID }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Custom domain setup commands are printed in the logs above." >> $GITHUB_STEP_SUMMARY

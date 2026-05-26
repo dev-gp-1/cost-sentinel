@@ -1,0 +1,52 @@
+name: Deploy to Cloud Run
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Google Auth
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: 'projects/431115644565/locations/global/workloadIdentityPools/github/providers/github'
+          service_account: 'github-actions@gp-phantomvision-dev.iam.gserviceaccount.com'
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker
+        run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+
+      - name: Build and push container image
+        run: |
+          IMAGE="us-central1-docker.pkg.dev/gp-phantomvision-dev/cloud-run-source-deploy/cost-sentinel:${{ github.sha }}"
+          docker build -t $IMAGE .
+          docker push $IMAGE
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy cost-sentinel \
+            --image us-central1-docker.pkg.dev/gp-phantomvision-dev/cloud-run-source-deploy/cost-sentinel:${{ github.sha }} \
+            --region us-central1 \
+            --platform managed \
+            --allow-unauthenticated \
+            --project gp-phantomvision-dev \
+            --quiet
+
+      - name: Show deployed URL
+        run: |
+          URL=$(gcloud run services describe cost-sentinel --region us-central1 --project gp-phantomvision-dev --format='value(status.url)')
+          echo "Deployed to: $URL"
+          echo "Update your Cloudflare Worker BACKEND_URL secret to this value."
