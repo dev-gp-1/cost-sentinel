@@ -1,0 +1,19 @@
+{
+  "name": "server",
+  "version": "1.0.0",
+  "description": "This folder contains a minimal server you can run locally to demonstrate live SKU listing using the official Google Cloud Billing API with Application Default Credentials (ADC).",
+  "main": "express-server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@google-cloud/billing": "^5.1.2",
+    "@google-cloud/storage": "^7.19.0",
+    "@hono/node-server": "^2.0.4",
+    "hono": "^4.12.23"
+  }
+}

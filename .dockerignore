@@ -1,0 +1,16 @@
+node_modules
+dist
+.git
+.gitignore
+*.md
+.env*
+.vscode
+.idea
+.DS_Store
+server/
+start-gcloud-connector.sh
+deploy-frontend.sh
+firebase.json
+nginx.conf
+Dockerfile
+.dockerignore
