@@ -198,7 +198,7 @@ gcloud run deploy "$SERVICE_NAME" \
   --memory "$MEMORY" \
   --cpu "$CPU" \
   --concurrency "$CONCURRENCY" \
-  --labels "app=cost-sentinel,managed-by=deploy.sh,environment=production" \
+  --labels "app=cost-sentinel,managed-by=deploy-sh,environment=production" \
   --quiet
 
 # Get resulting URL
