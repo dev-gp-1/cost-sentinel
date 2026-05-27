@@ -11,6 +11,5 @@ server/
 start-gcloud-connector.sh
 deploy-frontend.sh
 firebase.json
-nginx.conf
 Dockerfile
 .dockerignore
