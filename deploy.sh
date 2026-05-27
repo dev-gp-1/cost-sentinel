@@ -190,7 +190,7 @@ echo ""
 # -----------------------------------------------------------------------------
 echo "→ Deploying to Cloud Run (allow-unauthenticated)..."
 gcloud run deploy "$SERVICE_NAME" \
-  --image "$IMAGE" \
+  --image "$LATEST_IMAGE" \
   --region "$REGION" \
   --project "$PROJECT_ID" \
   --platform managed \
